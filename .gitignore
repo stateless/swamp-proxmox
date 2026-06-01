@@ -1,0 +1,5 @@
+# swamp working state (if a contributor runs swamp here)
+.swamp/
+.swamp-sources.yaml
+# deno
+*.orig
