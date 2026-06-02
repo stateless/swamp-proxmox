@@ -221,7 +221,7 @@ async function pollExec(
 /** Transport-neutral Proxmox VE guest-lifecycle model. */
 export const model = {
   type: "@stateless/proxmox/qemu",
-  version: "2026.06.02.3",
+  version: "2026.06.02.4",
   globalArguments: GlobalArgsSchema,
   resources: {
     guest: {

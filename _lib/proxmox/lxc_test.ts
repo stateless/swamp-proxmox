@@ -21,17 +21,17 @@ import {
 } from "./lxc.ts";
 
 Deno.test("container request builders produce the expected /lxc paths", () => {
-  assertEquals(listCtReq("sh1").path, "/nodes/sh1/lxc");
-  assert(listCtReq("sh1").verb === "get");
-  assertEquals(ctStatusReq("sh1", 9203).path, "/nodes/sh1/lxc/9203/status/current");
-  assertEquals(ctConfigReq("sh1", 9203).path, "/nodes/sh1/lxc/9203/config");
-  assertEquals(ctStartReq("sh1", 9203).path, "/nodes/sh1/lxc/9203/status/start");
-  assertEquals(ctStartReq("sh1", 9203).verb, "create");
-  assertEquals(ctStopReq("sh1", 9203).path, "/nodes/sh1/lxc/9203/status/stop");
+  assertEquals(listCtReq("pve1").path, "/nodes/pve1/lxc");
+  assert(listCtReq("pve1").verb === "get");
+  assertEquals(ctStatusReq("pve1", 9203).path, "/nodes/pve1/lxc/9203/status/current");
+  assertEquals(ctConfigReq("pve1", 9203).path, "/nodes/pve1/lxc/9203/config");
+  assertEquals(ctStartReq("pve1", 9203).path, "/nodes/pve1/lxc/9203/status/start");
+  assertEquals(ctStartReq("pve1", 9203).verb, "create");
+  assertEquals(ctStopReq("pve1", 9203).path, "/nodes/pve1/lxc/9203/status/stop");
 });
 
 Deno.test("createCtReq maps options to PVE /lxc create params", () => {
-  const req = createCtReq("sh1", {
+  const req = createCtReq("pve1", {
     vmid: 9203,
     ostemplate: "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst",
     hostname: "edge-web",
@@ -44,10 +44,10 @@ Deno.test("createCtReq maps options to PVE /lxc create params", () => {
     features: "nesting=1",
     sshPublicKeys: "ssh-ed25519 AAAA... nic\n",
     start: false,
-    config: { net0: "name=eth0,bridge=vmbr1,ip=120.138.24.118/28,gw=120.138.24.115" },
+    config: { net0: "name=eth0,bridge=vmbr1,ip=203.0.113.18/28,gw=203.0.113.30" },
   });
   assertEquals(req.verb, "create");
-  assertEquals(req.path, "/nodes/sh1/lxc");
+  assertEquals(req.path, "/nodes/pve1/lxc");
   const p = req.params!;
   assertEquals(p.vmid, 9203);
   assertEquals(p.ostemplate, "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst");
@@ -62,11 +62,11 @@ Deno.test("createCtReq maps options to PVE /lxc create params", () => {
   assertEquals(p.features, "nesting=1");
   assertEquals(p["ssh-public-keys"], "ssh-ed25519 AAAA... nic\n");
   assertEquals(p.start, 0);
-  assertEquals(p.net0, "name=eth0,bridge=vmbr1,ip=120.138.24.118/28,gw=120.138.24.115");
+  assertEquals(p.net0, "name=eth0,bridge=vmbr1,ip=203.0.113.18/28,gw=203.0.113.30");
 });
 
 Deno.test("createCtReq omits optional keys and encodes booleans", () => {
-  const req = createCtReq("sh1", {
+  const req = createCtReq("pve1", {
     vmid: 9204,
     ostemplate: "local:vztmpl/x.tar.zst",
     hostname: "c",
@@ -86,23 +86,23 @@ Deno.test("createCtReq omits optional keys and encodes booleans", () => {
 });
 
 Deno.test("ctSetConfigReq PUTs config keys to /config", () => {
-  const req = ctSetConfigReq("sh1", 9203, { nameserver: "1.1.1.1", onboot: 1 });
+  const req = ctSetConfigReq("pve1", 9203, { nameserver: "1.1.1.1", onboot: 1 });
   assertEquals(req.verb, "set");
-  assertEquals(req.path, "/nodes/sh1/lxc/9203/config");
+  assertEquals(req.path, "/nodes/pve1/lxc/9203/config");
   assertEquals(req.params, { nameserver: "1.1.1.1", onboot: 1 });
 });
 
 Deno.test("ctResizeReq builds a PUT to /resize with rootfs + size", () => {
-  const req = ctResizeReq("sh1", 9203, "rootfs", "+4G");
+  const req = ctResizeReq("pve1", 9203, "rootfs", "+4G");
   assertEquals(req.verb, "set");
-  assertEquals(req.path, "/nodes/sh1/lxc/9203/resize");
+  assertEquals(req.path, "/nodes/pve1/lxc/9203/resize");
   assertEquals(req.params, { disk: "rootfs", size: "+4G" });
 });
 
 Deno.test("ctDeleteReq adds purge params only when requested", () => {
-  assertEquals(ctDeleteReq("sh1", 9203, false).verb, "delete");
-  assertEquals(ctDeleteReq("sh1", 9203, false).params, {});
-  assertEquals(ctDeleteReq("sh1", 9203, true).params, {
+  assertEquals(ctDeleteReq("pve1", 9203, false).verb, "delete");
+  assertEquals(ctDeleteReq("pve1", 9203, false).params, {});
+  assertEquals(ctDeleteReq("pve1", 9203, true).params, {
     purge: 1,
     "destroy-unreferenced-disks": 1,
   });
@@ -111,17 +111,17 @@ Deno.test("ctDeleteReq adds purge params only when requested", () => {
 Deno.test("extractCtConfigIpv4 reads a static IP from netN, skips dhcp/loopback", () => {
   assertEquals(
     extractCtConfigIpv4({
-      net0: "name=eth0,bridge=vmbr1,ip=120.138.24.118/28,gw=120.138.24.115",
+      net0: "name=eth0,bridge=vmbr1,ip=203.0.113.18/28,gw=203.0.113.30",
     }),
-    "120.138.24.118",
+    "203.0.113.18",
   );
   // First netN with a static v4 wins; net0 dhcp falls through to net1.
   assertEquals(
     extractCtConfigIpv4({
       net0: "name=eth0,bridge=vmbr0,ip=dhcp",
-      net1: "name=eth1,bridge=vmbr3,ip=192.168.80.21/24",
+      net1: "name=eth1,bridge=vmbr3,ip=10.10.0.21/24",
     }),
-    "192.168.80.21",
+    "10.10.0.21",
   );
   assertEquals(extractCtConfigIpv4({ net0: "name=eth0,bridge=vmbr0,ip=dhcp" }), undefined);
   assertEquals(extractCtConfigIpv4({}), undefined);
@@ -132,13 +132,13 @@ Deno.test("extractCtConfigIpv4 reads a static IP from netN, skips dhcp/loopback"
 
 Deno.test("feasibility request builders hit the right node endpoints", () => {
   assertEquals(
-    listTemplatesReq("sh1", "isos").path,
-    "/nodes/sh1/storage/isos/content",
+    listTemplatesReq("pve1", "isos").path,
+    "/nodes/pve1/storage/isos/content",
   );
-  assertEquals(listTemplatesReq("sh1", "isos").params, { content: "vztmpl" });
-  assertEquals(listStoragesReq("sh1").path, "/nodes/sh1/storage");
-  assertEquals(listBridgesReq("sh1").path, "/nodes/sh1/network");
-  assertEquals(listBridgesReq("sh1").params, { type: "bridge" });
+  assertEquals(listTemplatesReq("pve1", "isos").params, { content: "vztmpl" });
+  assertEquals(listStoragesReq("pve1").path, "/nodes/pve1/storage");
+  assertEquals(listBridgesReq("pve1").path, "/nodes/pve1/network");
+  assertEquals(listBridgesReq("pve1").params, { type: "bridge" });
 });
 
 Deno.test("parseVolids + storageOfVolid read a content listing", () => {
@@ -179,8 +179,8 @@ Deno.test("parseBridges reads iface names", () => {
 Deno.test("bridgesFromConfig extracts unique bridges from netN entries", () => {
   assertEquals(
     bridgesFromConfig({
-      net0: "name=eth0,bridge=vmbr1,ip=120.138.24.118/28,gw=120.138.24.115",
-      net1: "name=eth1,bridge=vmbr3,ip=192.168.80.21/24",
+      net0: "name=eth0,bridge=vmbr1,ip=203.0.113.18/28,gw=203.0.113.30",
+      net1: "name=eth1,bridge=vmbr3,ip=10.10.0.21/24",
       nameserver: "1.1.1.1",
     }),
     ["vmbr1", "vmbr3"],

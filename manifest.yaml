@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@stateless/proxmox"
-version: "2026.06.02.3"
+version: "2026.06.02.4"
 description: >-
   Transport-neutral Proxmox VE lifecycle — QEMU VMs (clone, cloud-init config,
   resize disk, start, stop, delete, in-guest exec) and LXC containers

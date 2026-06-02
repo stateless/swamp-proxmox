@@ -30,7 +30,7 @@ export type PveVerb = "get" | "create" | "set" | "delete";
 /** One transport-neutral PVE operation. */
 export interface PveRequest {
   verb: PveVerb;
-  /** API path under `/api2/json`, e.g. `/nodes/sh1/qemu/9000/clone`. */
+  /** API path under `/api2/json`, e.g. `/nodes/pve1/qemu/9000/clone`. */
   path: string;
   /**
    * Operation parameters (form/query for api; `-k v` for pvesh). An array value

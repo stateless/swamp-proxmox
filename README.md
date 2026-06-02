@@ -106,8 +106,8 @@ anything you don't want swamp to delete with `production` (or `protected`):
 
 ```bash
 # refuses: "🐊 … is tagged production/protected" — unless you pass force
-swamp model method run sh1-guests delete --input '{"vmName":"box"}'
-swamp model method run sh1-guests delete --input '{"vmName":"box","force":true}'
+swamp model method run pve-fleet-qemu delete --input '{"vmName":"webapp"}'
+swamp model method run pve-fleet-qemu delete --input '{"vmName":"webapp","force":true}'
 ```
 
 ## OS-neutral by design — extend, don't fork

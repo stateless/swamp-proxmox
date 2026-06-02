@@ -164,7 +164,7 @@ export function ctResizeReq(
 
 /**
  * Extract the first static IPv4 from an LXC config's `netN` entries. PVE
- * encodes them as `name=eth0,bridge=vmbr0,ip=192.168.80.21/24,gw=…`. Returns the
+ * encodes them as `name=eth0,bridge=vmbr0,ip=10.10.0.21/24,gw=…`. Returns the
  * bare address (no CIDR), or undefined for DHCP/none.
  */
 export function extractCtConfigIpv4(config: unknown): string | undefined {

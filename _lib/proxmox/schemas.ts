@@ -33,7 +33,7 @@ export function safeArg(label: string): z.ZodString {
   );
 }
 
-/** A Proxmox node name (e.g. "sh1"). */
+/** A Proxmox node name (e.g. "pve1"). */
 const NodeName = safeArg("node").min(1);
 
 // ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ export const ApiTransportSchema = z.object({
   kind: z.literal("api"),
   node: NodeName,
   apiUrl: safeArg("apiUrl").url().describe(
-    "PVE API base, e.g. https://192.168.12.10:8006",
+    "PVE API base, e.g. https://10.0.0.10:8006",
   ),
   tokenId: safeArg("tokenId").min(1).describe(
     "API token id: user@realm!tokenname (e.g. svc-swamp@pve!build)",
