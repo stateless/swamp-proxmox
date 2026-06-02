@@ -1,6 +1,6 @@
 /**
- * `@stateless/proxmox/guest` — a transport-neutral Proxmox VE guest-lifecycle
- * model.
+ * `@stateless/proxmox/qemu` — a transport-neutral Proxmox VE **QEMU VM**
+ * lifecycle model. (Sibling: `@stateless/proxmox/lxc` for containers.)
  *
  * The same operations (`lookup`, `clone`, `setConfig`, `start`, `stop`,
  * `delete`) run either over the PVE REST API directly (`transport.kind:
@@ -218,8 +218,8 @@ async function pollExec(
 
 /** Transport-neutral Proxmox VE guest-lifecycle model. */
 export const model = {
-  type: "@stateless/proxmox/guest",
-  version: "2026.06.01.2",
+  type: "@stateless/proxmox/qemu",
+  version: "2026.06.02.1",
   globalArguments: GlobalArgsSchema,
   resources: {
     guest: {

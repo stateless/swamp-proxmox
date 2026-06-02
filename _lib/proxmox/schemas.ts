@@ -1,5 +1,7 @@
 /**
- * Zod schemas + inferred types for `@stateless/proxmox/guest`.
+ * Zod schemas + inferred types shared by the `@stateless/proxmox` models
+ * (`/qemu` VMs and `/lxc` containers) — transport, global args, guest refs,
+ * config bags, and the per-method argument/record schemas.
  *
  * The model is **transport-neutral**: the same guest-lifecycle operations run
  * either over the Proxmox REST API directly (`kind: "api"`, token auth) or by
@@ -247,6 +249,75 @@ export const DeleteArgsSchema = z.object({
   message: "Provide vmid or vmName",
 });
 export type DeleteArgs = z.infer<typeof DeleteArgsSchema>;
+
+// ---------------------------------------------------------------------------
+// LXC-specific argument schemas (the /lxc surface; see _lib/proxmox/lxc.ts).
+// The transport, global args, guest ref, and the setConfig/start/stop/delete/
+// sync/lookup schemas above are shared with the QEMU model.
+// ---------------------------------------------------------------------------
+
+/**
+ * `create` provisions a new LXC container from an OS template. Unlike QEMU
+ * (which clones a template VM), a container is built from a `vztmpl` tarball, so
+ * the args carry its shape (rootfs size, cores, memory) directly rather than
+ * inheriting a template's.
+ */
+export const CreateCtArgsSchema = z.object({
+  vmid: Vmid.describe("New container VMID."),
+  ostemplate: safeArg("ostemplate").min(1).describe(
+    "OS template volume id, e.g. " +
+      "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst.",
+  ),
+  hostname: safeArg("hostname").min(1).regex(
+    /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/,
+    "hostname must be a valid DNS name",
+  ).describe("Container hostname."),
+  storage: safeArg("storage").min(1).describe(
+    "Storage for the root volume (e.g. local-zfs).",
+  ),
+  rootfsSize: z.number().int().positive().default(8).describe(
+    "Root volume size in GiB.",
+  ),
+  cores: z.number().int().positive().optional(),
+  memory: z.number().int().positive().optional().describe("RAM in MiB."),
+  swap: z.number().int().nonnegative().optional().describe("Swap in MiB."),
+  unprivileged: z.boolean().default(true).describe(
+    "Unprivileged container (recommended).",
+  ),
+  features: safeArg("features").optional().describe(
+    'PVE features string, e.g. "nesting=1".',
+  ),
+  sshPublicKeys: z.string().optional().describe(
+    "Newline-separated authorized SSH public keys for root.",
+  ),
+  start: z.boolean().default(false).describe(
+    "Start the container immediately after creation.",
+  ),
+  config: ConfigBag.optional().describe(
+    "Extra config keys (net0, nameserver, searchdomain, onboot, …).",
+  ),
+});
+export type CreateCtArgs = z.infer<typeof CreateCtArgsSchema>;
+
+/**
+ * `resize` grows an LXC volume. Mirrors the QEMU resizeDisk, but the disk key is
+ * `rootfs` (or a mount point `mpN`), not `scsiN`. PVE only **grows**.
+ */
+export const CtResizeArgsSchema = z.object({
+  vmid: Vmid.optional(),
+  vmName: safeArg("vmName").min(1).optional(),
+  disk: safeArg("disk").regex(
+    /^(rootfs|mp\d+)$/,
+    "disk must be rootfs or a mount point like mp0",
+  ).default("rootfs").describe("Volume key to grow (rootfs or mpN)."),
+  size: safeArg("size").regex(
+    /^\+?\d+(\.\d+)?[KMGT]?$/,
+    'size must be an increment like "+4G" or an absolute like "16G"',
+  ).describe("Increment (`+4G`) or absolute target (`16G`); PVE only grows."),
+}).refine((a) => a.vmid !== undefined || a.vmName !== undefined, {
+  message: "Provide vmid or vmName",
+});
+export type CtResizeArgs = z.infer<typeof CtResizeArgsSchema>;
 
 // ---------------------------------------------------------------------------
 // Resource record schema
