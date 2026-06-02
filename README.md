@@ -83,6 +83,33 @@ error:
 > prompt**. Set **`features: nesting=1`** (then stop/start) to fix it, and set a
 > root password if you need console login (key-only builds leave root locked).
 
+## Safety gates (tags)
+
+`delete` and `stop` are gated by PVE tags, so the model never destroys a guest it
+shouldn't — and never touches one it didn't create. This matters because a single
+node usually hosts swamp-managed *and* hand-built guests side by side.
+
+- **`swamp` (managed) tag — "is this ours?"** `create` and `clone` auto-apply a
+  `swamp` tag. `delete` and `stop` **refuse any guest that is not `swamp`-tagged**,
+  so the model can never stop/delete a hand-built or third-party guest sharing the
+  node.
+- **`production` / `protected` tags — "is this load-bearing?"** `delete`
+  **additionally refuses** any guest tagged `production` or `protected`, *even if*
+  it is `swamp`-managed. (`stop` does not check these — only the managed tag.)
+- **`force: true`** overrides both checks for that one call. The gate exists to make
+  destructive ops deliberate, not to be undefeatable — but you have to ask for it.
+
+Tags are ordinary PVE tags: set them in the PVE UI, or via `setConfig`
+(`{"config": {"tags": "swamp;production"}}`). The tag is the literal word `swamp`
+(PVE rejects emoji in tags); the 🐊 only shows up in the refusal message. Mark
+anything you don't want swamp to delete with `production` (or `protected`):
+
+```bash
+# refuses: "🐊 … is tagged production/protected" — unless you pass force
+swamp model method run sh1-guests delete --input '{"vmName":"box"}'
+swamp model method run sh1-guests delete --input '{"vmName":"box","force":true}'
+```
+
 ## OS-neutral by design — extend, don't fork
 
 Neither model knows the guest OS. The methods drive the **hypervisor**; OS-specific

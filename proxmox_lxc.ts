@@ -282,7 +282,7 @@ async function verifyCreateFeasible(
 /** Transport-neutral Proxmox VE LXC-container lifecycle model. */
 export const model = {
   type: "@stateless/proxmox/lxc",
-  version: "2026.06.02.2",
+  version: "2026.06.02.3",
   globalArguments: GlobalArgsSchema,
   resources: {
     container: {
