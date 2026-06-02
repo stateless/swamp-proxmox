@@ -214,7 +214,15 @@ export const StartArgsSchema = z.object({
 });
 export type StartArgs = z.infer<typeof StartArgsSchema>;
 
-export const StopArgsSchema = GuestRef;
+export const StopArgsSchema = z.object({
+  vmid: Vmid.optional(),
+  vmName: safeArg("vmName").min(1).optional(),
+  force: z.boolean().default(false).describe(
+    "Override the ownership gate: stop even if the guest is not swamp-managed.",
+  ),
+}).refine((a) => a.vmid !== undefined || a.vmName !== undefined, {
+  message: "Provide vmid or vmName",
+});
 export type StopArgs = z.infer<typeof StopArgsSchema>;
 
 /**
@@ -244,6 +252,10 @@ export const DeleteArgsSchema = z.object({
   vmName: safeArg("vmName").min(1).optional(),
   purge: z.boolean().default(true).describe(
     "Also remove the VM from backup jobs and HA, and purge disks.",
+  ),
+  force: z.boolean().default(false).describe(
+    "Override the safety gates: delete even if the guest is not swamp-managed " +
+      "(no 'swamp' tag) or is tagged production/protected.",
   ),
 }).refine((a) => a.vmid !== undefined || a.vmName !== undefined, {
   message: "Provide vmid or vmName",

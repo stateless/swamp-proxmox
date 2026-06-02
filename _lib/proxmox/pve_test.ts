@@ -3,19 +3,24 @@ import {
   agentExecReq,
   agentExecStatusReq,
   agentInterfacesReq,
+  assertGate,
   cloneReq,
   deleteReq,
   extractIpv4,
+  isManaged,
+  isProtected,
   listGuestsReq,
   parseExecPid,
   parseExecStatus,
   parseGuestList,
+  parseTags,
   resizeDiskReq,
   resolveVmidFromList,
   setConfigReq,
   startReq,
   statusReq,
   stopReq,
+  withManagedTag,
 } from "./pve.ts";
 
 Deno.test("request builders produce the expected PVE paths", () => {
@@ -75,7 +80,56 @@ Deno.test("parseGuestList tolerates non-array and missing fields", () => {
   assertEquals(parseGuestList(null), []);
   assertEquals(parseGuestList("nope"), []);
   const out = parseGuestList([{ vmid: 105, name: "box" }, { foo: 1 }]);
-  assertEquals(out, [{ vmid: 105, name: "box", status: undefined }]);
+  assertEquals(out, [{ vmid: 105, name: "box", status: undefined, tags: [] }]);
+});
+
+Deno.test("parseGuestList captures + splits tags", () => {
+  const out = parseGuestList([{ vmid: 9201, name: "cp", tags: "swamp;production" }]);
+  assertEquals(out[0].tags, ["swamp", "production"]);
+});
+
+Deno.test("parseTags splits on ;/, lowercases, drops empties", () => {
+  assertEquals(parseTags("swamp;production"), ["swamp", "production"]);
+  assertEquals(parseTags("Swamp, Web"), ["swamp", "web"]);
+  assertEquals(parseTags(""), []);
+  assertEquals(parseTags(undefined), []);
+  assertEquals(parseTags(123), []);
+});
+
+Deno.test("isManaged / isProtected key off tags", () => {
+  assert(isManaged(["swamp", "production"]));
+  assert(!isManaged(["web"]));
+  assert(!isManaged(undefined));
+  assert(isProtected(["production"]));
+  assert(isProtected(["protected"]));
+  assert(!isProtected(["swamp"]));
+});
+
+Deno.test("withManagedTag adds swamp idempotently, preserving others", () => {
+  assertEquals(withManagedTag(undefined), "swamp");
+  assertEquals(withManagedTag("web"), "web;swamp");
+  assertEquals(withManagedTag("swamp;web"), "swamp;web");
+});
+
+Deno.test("assertGate enforces managed + protected unless force", () => {
+  // not swamp-managed → blocked
+  assertThrows(
+    () => assertGate(["web"], { force: false, op: "delete", vmid: 9, checkProtected: true }),
+    Error,
+    "not swamp-managed",
+  );
+  // swamp-managed but production + delete → blocked
+  assertThrows(
+    () => assertGate(["swamp", "production"], { force: false, op: "delete", vmid: 9, checkProtected: true }),
+    Error,
+    "production/protected",
+  );
+  // swamp-managed, not protected → ok
+  assertGate(["swamp"], { force: false, op: "delete", vmid: 9, checkProtected: true });
+  // stop only needs managed (no protected check)
+  assertGate(["swamp", "production"], { force: false, op: "stop", vmid: 9 });
+  // force bypasses everything
+  assertGate(["web"], { force: true, op: "delete", vmid: 9, checkProtected: true });
 });
 
 Deno.test("resolveVmidFromList finds, rejects missing and ambiguous", () => {

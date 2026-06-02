@@ -128,14 +128,77 @@ export function agentExecStatusReq(
 // Parsers
 // ---------------------------------------------------------------------------
 
-/** A guest summary as returned in the `/qemu` list. */
+/** A guest summary as returned in the `/qemu` (or `/lxc`) list. */
 export interface GuestSummary {
   vmid: number;
   name?: string;
   status?: string;
+  /** PVE guest tags (the node's `tags` string, split + lowercased). */
+  tags?: string[];
 }
 
-/** Coerce the `/qemu` list response into typed summaries. */
+/** Split a PVE `tags` value ("a;b" or "a,b") into a lowercased array. */
+export function parseTags(raw: unknown): string[] {
+  if (typeof raw !== "string") return [];
+  return raw.split(/[;,]/).map((t) => t.trim().toLowerCase()).filter(Boolean);
+}
+
+/**
+ * Tags that mark a guest as protected from deletion — `delete` refuses unless
+ * called with `force: true`. PVE lowercases tags, so match in lowercase.
+ */
+export const PROTECTED_TAGS = ["production", "protected"];
+
+/** True if any of the guest's tags marks it protected from deletion. */
+export function isProtected(tags: string[] | undefined): boolean {
+  return (tags ?? []).some((t) => PROTECTED_TAGS.includes(t));
+}
+
+/**
+ * The tag marking a guest as swamp-managed. Destructive methods (`delete`,
+ * `stop`) refuse to touch a guest that lacks it, so swamp never operates on the
+ * hand-managed fleet by accident. `create`/`clone` apply it to new guests.
+ */
+export const MANAGED_TAG = "swamp";
+
+/** True if the guest is swamp-managed (tagged `swamp`). */
+export function isManaged(tags: string[] | undefined): boolean {
+  return (tags ?? []).includes(MANAGED_TAG);
+}
+
+/** Merge `MANAGED_TAG` into an existing PVE tags string (idempotent). */
+export function withManagedTag(existing: unknown): string {
+  const tags = parseTags(existing);
+  if (!tags.includes(MANAGED_TAG)) tags.push(MANAGED_TAG);
+  return tags.join(";");
+}
+
+/**
+ * Enforce the safety gates before a destructive op, given the target guest's
+ * tags. Throws unless: the guest is swamp-managed (tagged `swamp`), and — when
+ * `checkProtected` — not tagged production/protected. `force` skips both.
+ */
+export function assertGate(
+  tags: string[] | undefined,
+  opts: { force: boolean; op: string; vmid: number; checkProtected?: boolean },
+): void {
+  if (opts.force) return;
+  if (!isManaged(tags)) {
+    throw new Error(
+      `🐊 ${opts.op}: guest ${opts.vmid} is not swamp-managed (no ` +
+        `'${MANAGED_TAG}' tag) — refusing to touch a non-swamp guest. ` +
+        `Pass force=true to override.`,
+    );
+  }
+  if (opts.checkProtected && isProtected(tags)) {
+    throw new Error(
+      `🐊 ${opts.op}: guest ${opts.vmid} is tagged production/protected — ` +
+        `refusing to delete. Pass force=true to override.`,
+    );
+  }
+}
+
+/** Coerce the `/qemu` (or `/lxc`) list response into typed summaries. */
 export function parseGuestList(data: unknown): GuestSummary[] {
   if (!Array.isArray(data)) return [];
   return data.flatMap((g) => {
@@ -145,6 +208,7 @@ export function parseGuestList(data: unknown): GuestSummary[] {
         vmid: Number(rec.vmid),
         name: typeof rec.name === "string" ? rec.name : undefined,
         status: typeof rec.status === "string" ? rec.status : undefined,
+        tags: parseTags(rec.tags),
       }];
     }
     return [];

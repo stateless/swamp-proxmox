@@ -24,7 +24,12 @@ import {
   type PveRequest,
   waitForTask,
 } from "./_lib/proxmox/client.ts";
-import { parseGuestList, resolveVmidFromList } from "./_lib/proxmox/pve.ts";
+import {
+  assertGate,
+  parseGuestList,
+  resolveVmidFromList,
+  withManagedTag,
+} from "./_lib/proxmox/pve.ts";
 import {
   bridgesFromConfig,
   type CreateCtOpts,
@@ -277,7 +282,7 @@ async function verifyCreateFeasible(
 /** Transport-neutral Proxmox VE LXC-container lifecycle model. */
 export const model = {
   type: "@stateless/proxmox/lxc",
-  version: "2026.06.02.1",
+  version: "2026.06.02.2",
   globalArguments: GlobalArgsSchema,
   resources: {
     container: {
@@ -408,7 +413,16 @@ export const model = {
           hostname: args.hostname,
           tmpl: args.ostemplate,
         });
-        await runAndAwait(ctx.globalArgs, createCtReq(node, args));
+        // Auto-tag the new container 🐊 swamp-managed so later destructive ops
+        // are permitted (and non-swamp guests stay protected).
+        const tagged: CreateCtOpts = {
+          ...args,
+          config: {
+            ...(args.config ?? {}),
+            tags: withManagedTag(args.config?.tags),
+          },
+        };
+        await runAndAwait(ctx.globalArgs, createCtReq(node, tagged));
         const handle = await recordState(ctx, args.vmid, "create", {
           nameHint: args.hostname,
         });
@@ -472,11 +486,16 @@ export const model = {
       description: "Stop a container (waits for the task).",
       arguments: StopArgsSchema,
       execute: async (
-        args: { vmid?: number; vmName?: string },
+        args: { vmid?: number; vmName?: string; force: boolean },
         ctx: MethodContext,
       ): Promise<MethodResult> => {
         const node = ctx.globalArgs.transport.node;
         const vmid = await resolveVmid(ctx.globalArgs, args);
+        // 🐊 ownership gate: only stop swamp-managed containers (unless force).
+        const guest = parseGuestList(
+          await executeRequest(ctx.globalArgs, listCtReq(node)),
+        ).find((g) => g.vmid === vmid);
+        assertGate(guest?.tags, { force: args.force, op: "stop", vmid });
         ctx.logger.info("stopping container {vmid}", { vmid });
         await runAndAwait(ctx.globalArgs, ctStopReq(node, vmid));
         const handle = await recordState(ctx, vmid, "stop");
@@ -513,7 +532,12 @@ export const model = {
       description: "Delete a container (waits for the task).",
       arguments: DeleteArgsSchema,
       execute: async (
-        args: { vmid?: number; vmName?: string; purge: boolean },
+        args: {
+          vmid?: number;
+          vmName?: string;
+          purge: boolean;
+          force: boolean;
+        },
         ctx: MethodContext,
       ): Promise<MethodResult> => {
         const node = ctx.globalArgs.transport.node;
@@ -556,6 +580,14 @@ export const model = {
           );
           return { dataHandles: [goneHandle] };
         }
+        // 🐊 gates: only delete swamp-managed containers, and never a
+        // production/protected one, unless force overrides.
+        assertGate(list.find((g) => g.vmid === vmid)?.tags, {
+          force: args.force,
+          op: "delete",
+          vmid: vmid!,
+          checkProtected: true,
+        });
         ctx.logger.info("deleting container {vmid} (purge={purge})", {
           vmid,
           purge: args.purge,

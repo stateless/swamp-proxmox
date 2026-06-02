@@ -25,6 +25,7 @@ import {
   agentExecReq,
   agentExecStatusReq,
   agentInterfacesReq,
+  assertGate,
   cloneReq,
   deleteReq,
   extractIpv4,
@@ -39,6 +40,7 @@ import {
   startReq,
   statusReq,
   stopReq,
+  withManagedTag,
 } from "./_lib/proxmox/pve.ts";
 import {
   CloneArgsSchema,
@@ -219,7 +221,7 @@ async function pollExec(
 /** Transport-neutral Proxmox VE guest-lifecycle model. */
 export const model = {
   type: "@stateless/proxmox/qemu",
-  version: "2026.06.02.1",
+  version: "2026.06.02.2",
   globalArguments: GlobalArgsSchema,
   resources: {
     guest: {
@@ -360,6 +362,12 @@ export const model = {
             storage: args.storage,
           }),
         );
+        // 🐊 tag the clone swamp-managed so later destructive ops are permitted
+        // (and non-swamp guests stay protected from swamp).
+        await executeRequest(
+          ctx.globalArgs,
+          setConfigReq(node, args.vmid, { tags: withManagedTag(undefined) }),
+        );
         const handle = await recordState(ctx, args.vmid, "clone", {
           nameHint: args.name,
         });
@@ -446,11 +454,16 @@ export const model = {
       description: "Stop a guest (waits for the task).",
       arguments: StopArgsSchema,
       execute: async (
-        args: { vmid?: number; vmName?: string },
+        args: { vmid?: number; vmName?: string; force: boolean },
         ctx: MethodContext,
       ): Promise<MethodResult> => {
         const node = ctx.globalArgs.transport.node;
         const vmid = await resolveVmid(ctx.globalArgs, args);
+        // 🐊 ownership gate: only stop swamp-managed guests (unless force).
+        const guest = parseGuestList(
+          await executeRequest(ctx.globalArgs, listGuestsReq(node)),
+        ).find((g) => g.vmid === vmid);
+        assertGate(guest?.tags, { force: args.force, op: "stop", vmid });
         ctx.logger.info("stopping guest {vmid}", { vmid });
         await runAndAwait(ctx.globalArgs, stopReq(node, vmid));
         const handle = await recordState(ctx, vmid, "stop");
@@ -462,7 +475,12 @@ export const model = {
       description: "Delete a guest (waits for the task).",
       arguments: DeleteArgsSchema,
       execute: async (
-        args: { vmid?: number; vmName?: string; purge: boolean },
+        args: {
+          vmid?: number;
+          vmName?: string;
+          purge: boolean;
+          force: boolean;
+        },
         ctx: MethodContext,
       ): Promise<MethodResult> => {
         const node = ctx.globalArgs.transport.node;
@@ -505,6 +523,14 @@ export const model = {
           );
           return { dataHandles: [goneHandle] };
         }
+        // 🐊 gates: only delete swamp-managed guests, and never a
+        // production/protected one, unless force overrides.
+        assertGate(list.find((g) => g.vmid === vmid)?.tags, {
+          force: args.force,
+          op: "delete",
+          vmid: vmid!,
+          checkProtected: true,
+        });
         ctx.logger.info("deleting guest {vmid} (purge={purge})", {
           vmid,
           purge: args.purge,
