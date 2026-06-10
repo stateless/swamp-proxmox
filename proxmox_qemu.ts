@@ -27,10 +27,12 @@ import {
   agentInterfacesReq,
   assertGate,
   cloneReq,
+  configReq,
   deleteReq,
   extractIpv4,
   type GuestExecResult,
   listGuestsReq,
+  parseConfig,
   parseExecPid,
   parseExecStatus,
   parseGuestList,
@@ -48,15 +50,33 @@ import {
   ExecResultSchema,
   type GlobalArgs,
   GlobalArgsSchema,
+  GuestConfigSchema,
   GuestExecArgsSchema,
   GuestStateSchema,
   LookupArgsSchema,
+  NodeConfigArgsSchema,
+  NodeConfigSchema,
+  NodeStatusArgsSchema,
+  NodeStatusSchema,
   ResizeDiskArgsSchema,
   SetConfigArgsSchema,
   StartArgsSchema,
   StopArgsSchema,
   SyncArgsSchema,
 } from "./_lib/proxmox/schemas.ts";
+import {
+  type GuestMetrics,
+  isDiskUnhealthy,
+  nodeBridgesReq,
+  nodeDisksReq,
+  nodeStatusReq,
+  nodeStoragesReq,
+  parseBridges,
+  parseGuestMetrics,
+  parseNodeDisks,
+  parseNodeStatus,
+  parseStorages,
+} from "./_lib/proxmox/node.ts";
 
 // --- Minimal structural typings for the method context (declared locally,
 // never imported — the convention every swamp extension follows). ----------
@@ -131,6 +151,7 @@ async function recordState(
   const node = global.transport.node;
   let status = "unknown";
   let name = opts.nameHint;
+  let metrics: GuestMetrics = {};
   try {
     const cur = await executeRequest(global, statusReq(node, vmid)) as
       | Record<string, unknown>
@@ -138,6 +159,7 @@ async function recordState(
     if (cur) {
       if (typeof cur.status === "string") status = cur.status;
       if (typeof cur.name === "string") name = cur.name;
+      metrics = parseGuestMetrics(cur);
     }
   } catch (err) {
     ctx.logger.warning("status read failed for vmid {vmid}: {error}", {
@@ -151,6 +173,7 @@ async function recordState(
     node,
     status,
     ipv4: opts.ipv4,
+    ...metrics,
     lastOperation,
     recordedAt: new Date().toISOString(),
   });
@@ -221,7 +244,7 @@ async function pollExec(
 /** Transport-neutral Proxmox VE guest-lifecycle model. */
 export const model = {
   type: "@stateless/proxmox/qemu",
-  version: "2026.06.02.4",
+  version: "2026.06.10.1",
   globalArguments: GlobalArgsSchema,
   resources: {
     guest: {
@@ -233,6 +256,29 @@ export const model = {
     exec: {
       description: "Result of the most recent guestExec command run.",
       schema: ExecResultSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
+    nodeStatus: {
+      description:
+        "Host-health snapshot of the node: CPU load, memory/swap pressure, " +
+        "root-filesystem fill, and per-disk SMART health.",
+      schema: NodeStatusSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
+    config: {
+      description:
+        "A guest's declarative config bag (cores, memory, disks, net, " +
+        "cloud-init keys, tags) as returned by PVE.",
+      schema: GuestConfigSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
+    nodeConfig: {
+      description:
+        "Node config inventory: storages (id/type/content/capacity) and bridges.",
+      schema: NodeConfigSchema,
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },
@@ -284,6 +330,136 @@ export const model = {
         const vmid = await resolveVmid(ctx.globalArgs, args);
         ctx.logger.info("lookup guest {vmid}", { vmid });
         const handle = await recordState(ctx, vmid, "lookup");
+        return { dataHandles: [handle] };
+      },
+    },
+
+    getConfig: {
+      description:
+        "Read a guest's declarative config bag (cores, memory, disks, net, " +
+        "cloud-init keys, tags) — the config counterpart to lookup's status.",
+      arguments: LookupArgsSchema,
+      execute: async (
+        args: { vmid?: number; vmName?: string },
+        ctx: MethodContext,
+      ): Promise<MethodResult> => {
+        const global = ctx.globalArgs;
+        const node = global.transport.node;
+        const vmid = await resolveVmid(global, args);
+        const config = parseConfig(
+          await executeRequest(global, configReq(node, vmid)),
+        );
+        const record = GuestConfigSchema.parse({
+          vmid,
+          node,
+          config,
+          recordedAt: new Date().toISOString(),
+        });
+        ctx.logger.info("getConfig guest {vmid}: {n} keys", {
+          vmid,
+          n: Object.keys(config).length,
+        });
+        const handle = await ctx.writeResource(
+          "config",
+          `vm-${vmid}-config`,
+          record,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    nodeStatus: {
+      description:
+        "Snapshot host health: CPU load, memory/swap pressure, root-filesystem " +
+        "fill, and per-disk SMART health. Node comes from the transport.",
+      arguments: NodeStatusArgsSchema,
+      execute: async (
+        _args: Record<string, never>,
+        ctx: MethodContext,
+      ): Promise<MethodResult> => {
+        const global = ctx.globalArgs;
+        const node = global.transport.node;
+        ctx.logger.info("nodeStatus: probing {node}", { node });
+        const facts = parseNodeStatus(
+          await executeRequest(global, nodeStatusReq(node)),
+        );
+        // Disk SMART needs a privileged endpoint; a token without it shouldn't
+        // sink the whole snapshot — degrade to an empty disk list.
+        let disks: ReturnType<typeof parseNodeDisks> = [];
+        try {
+          disks = parseNodeDisks(
+            await executeRequest(global, nodeDisksReq(node)),
+          );
+        } catch (err) {
+          ctx.logger.warning(
+            "nodeStatus: disk list failed on {node}: {error}",
+            {
+              node,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
+        }
+        const unhealthy = disks.filter(isDiskUnhealthy).length;
+        const record = NodeStatusSchema.parse({
+          node,
+          ...facts,
+          disks,
+          recordedAt: new Date().toISOString(),
+        });
+        ctx.logger.info(
+          "nodeStatus {node}: cpu {cpu}% · mem {mem}% · rootfs {root}% · " +
+            "{disks} disks ({unhealthy} not PASSED)",
+          {
+            node,
+            cpu: facts.cpuPct ?? "?",
+            mem: facts.memPct ?? "?",
+            root: facts.rootfsPct ?? "?",
+            disks: disks.length,
+            unhealthy,
+          },
+        );
+        const handle = await ctx.writeResource(
+          "nodeStatus",
+          `node-${node}`,
+          record,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+
+    nodeConfig: {
+      description:
+        "Read node config inventory: storages (id/type/content/capacity) and " +
+        "bridges. The config counterpart to nodeStatus.",
+      arguments: NodeConfigArgsSchema,
+      execute: async (
+        _args: Record<string, never>,
+        ctx: MethodContext,
+      ): Promise<MethodResult> => {
+        const global = ctx.globalArgs;
+        const node = global.transport.node;
+        const storages = parseStorages(
+          await executeRequest(global, nodeStoragesReq(node)),
+        );
+        const bridges = parseBridges(
+          await executeRequest(global, nodeBridgesReq(node)),
+        );
+        const record = NodeConfigSchema.parse({
+          node,
+          storages,
+          bridges,
+          recordedAt: new Date().toISOString(),
+        });
+        ctx.logger.info("nodeConfig {node}: {s} storages, {b} bridges", {
+          node,
+          s: storages.length,
+          b: bridges.length,
+        });
+        const handle = await ctx.writeResource(
+          "nodeConfig",
+          `node-${node}-config`,
+          record,
+        );
         return { dataHandles: [handle] };
       },
     },

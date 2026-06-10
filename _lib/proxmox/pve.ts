@@ -45,6 +45,11 @@ export function setConfigReq(
   return { verb: "set", path: `${qemu(node, vmid)}/config`, params: config };
 }
 
+/** GET a guest's full config bag (cores, memory, disks, net, cloud-init, tags). */
+export function configReq(node: string, vmid: number): PveRequest {
+  return { verb: "get", path: `${qemu(node, vmid)}/config` };
+}
+
 /** POST start. */
 export function startReq(node: string, vmid: number): PveRequest {
   return { verb: "create", path: `${qemu(node, vmid)}/status/start` };
@@ -263,6 +268,23 @@ export function parseExecStatus(data: unknown): GuestExecResult {
     ? rec["err-data"] as string
     : undefined;
   return { exited, exitCode, stdout, stderr };
+}
+
+/**
+ * Coerce a guest `/config` response into a flat scalar bag. PVE config values
+ * are scalars (`cores`, `memory`, `scsi0`, `net0`, `ipconfig0`, `tags`, …) plus
+ * a `digest`; booleans are normalised to 0/1 and non-scalars dropped, so the
+ * record round-trips cleanly through the resource schema.
+ */
+export function parseConfig(data: unknown): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  if (data && typeof data === "object") {
+    for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+      if (typeof v === "string" || typeof v === "number") out[k] = v;
+      else if (typeof v === "boolean") out[k] = v ? 1 : 0;
+    }
+  }
+  return out;
 }
 
 /**

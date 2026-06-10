@@ -23,11 +23,20 @@ import {
 Deno.test("container request builders produce the expected /lxc paths", () => {
   assertEquals(listCtReq("pve1").path, "/nodes/pve1/lxc");
   assert(listCtReq("pve1").verb === "get");
-  assertEquals(ctStatusReq("pve1", 9203).path, "/nodes/pve1/lxc/9203/status/current");
+  assertEquals(
+    ctStatusReq("pve1", 9203).path,
+    "/nodes/pve1/lxc/9203/status/current",
+  );
   assertEquals(ctConfigReq("pve1", 9203).path, "/nodes/pve1/lxc/9203/config");
-  assertEquals(ctStartReq("pve1", 9203).path, "/nodes/pve1/lxc/9203/status/start");
+  assertEquals(
+    ctStartReq("pve1", 9203).path,
+    "/nodes/pve1/lxc/9203/status/start",
+  );
   assertEquals(ctStartReq("pve1", 9203).verb, "create");
-  assertEquals(ctStopReq("pve1", 9203).path, "/nodes/pve1/lxc/9203/status/stop");
+  assertEquals(
+    ctStopReq("pve1", 9203).path,
+    "/nodes/pve1/lxc/9203/status/stop",
+  );
 });
 
 Deno.test("createCtReq maps options to PVE /lxc create params", () => {
@@ -44,13 +53,18 @@ Deno.test("createCtReq maps options to PVE /lxc create params", () => {
     features: "nesting=1",
     sshPublicKeys: "ssh-ed25519 AAAA... nic\n",
     start: false,
-    config: { net0: "name=eth0,bridge=vmbr1,ip=203.0.113.18/28,gw=203.0.113.30" },
+    config: {
+      net0: "name=eth0,bridge=vmbr1,ip=203.0.113.18/28,gw=203.0.113.30",
+    },
   });
   assertEquals(req.verb, "create");
   assertEquals(req.path, "/nodes/pve1/lxc");
   const p = req.params!;
   assertEquals(p.vmid, 9203);
-  assertEquals(p.ostemplate, "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst");
+  assertEquals(
+    p.ostemplate,
+    "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst",
+  );
   assertEquals(p.hostname, "edge-web");
   assertEquals(p.storage, "local-zfs");
   // Root volume spec is "<storage>:<size-in-GiB>".
@@ -62,7 +76,10 @@ Deno.test("createCtReq maps options to PVE /lxc create params", () => {
   assertEquals(p.features, "nesting=1");
   assertEquals(p["ssh-public-keys"], "ssh-ed25519 AAAA... nic\n");
   assertEquals(p.start, 0);
-  assertEquals(p.net0, "name=eth0,bridge=vmbr1,ip=203.0.113.18/28,gw=203.0.113.30");
+  assertEquals(
+    p.net0,
+    "name=eth0,bridge=vmbr1,ip=203.0.113.18/28,gw=203.0.113.30",
+  );
 });
 
 Deno.test("createCtReq omits optional keys and encodes booleans", () => {
@@ -86,7 +103,10 @@ Deno.test("createCtReq omits optional keys and encodes booleans", () => {
 });
 
 Deno.test("ctSetConfigReq PUTs config keys to /config", () => {
-  const req = ctSetConfigReq("pve1", 9203, { nameserver: "1.1.1.1", onboot: 1 });
+  const req = ctSetConfigReq("pve1", 9203, {
+    nameserver: "1.1.1.1",
+    onboot: 1,
+  });
   assertEquals(req.verb, "set");
   assertEquals(req.path, "/nodes/pve1/lxc/9203/config");
   assertEquals(req.params, { nameserver: "1.1.1.1", onboot: 1 });
@@ -123,7 +143,10 @@ Deno.test("extractCtConfigIpv4 reads a static IP from netN, skips dhcp/loopback"
     }),
     "10.10.0.21",
   );
-  assertEquals(extractCtConfigIpv4({ net0: "name=eth0,bridge=vmbr0,ip=dhcp" }), undefined);
+  assertEquals(
+    extractCtConfigIpv4({ net0: "name=eth0,bridge=vmbr0,ip=dhcp" }),
+    undefined,
+  );
   assertEquals(extractCtConfigIpv4({}), undefined);
   assertEquals(extractCtConfigIpv4(null), undefined);
   // Non-net keys are ignored.
@@ -144,7 +167,10 @@ Deno.test("feasibility request builders hit the right node endpoints", () => {
 Deno.test("parseVolids + storageOfVolid read a content listing", () => {
   assertEquals(
     parseVolids([
-      { volid: "isos:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst", format: "tzst" },
+      {
+        volid: "isos:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst",
+        format: "tzst",
+      },
       { notavolid: 1 },
     ]),
     ["isos:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"],
@@ -185,7 +211,9 @@ Deno.test("bridgesFromConfig extracts unique bridges from netN entries", () => {
     }),
     ["vmbr1", "vmbr3"],
   );
-  assertEquals(bridgesFromConfig({ net0: "name=eth0,bridge=vmbr0" }), ["vmbr0"]);
+  assertEquals(bridgesFromConfig({ net0: "name=eth0,bridge=vmbr0" }), [
+    "vmbr0",
+  ]);
   assertEquals(bridgesFromConfig(undefined), []);
   assertEquals(bridgesFromConfig({ cores: 1 }), []);
 });

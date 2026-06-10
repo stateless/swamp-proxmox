@@ -49,7 +49,7 @@ export const ApiTransportSchema = z.object({
   kind: z.literal("api"),
   node: NodeName,
   apiUrl: safeArg("apiUrl").url().describe(
-    "PVE API base, e.g. https://10.0.0.10:8006",
+    "PVE API base, e.g. https://192.0.2.10:8006",
   ),
   tokenId: safeArg("tokenId").min(1).describe(
     "API token id: user@realm!tokenname (e.g. svc-swamp@pve!build)",
@@ -342,10 +342,110 @@ export const GuestStateSchema = z.object({
   node: z.string(),
   status: z.string().describe("running | stopped | unknown."),
   ipv4: z.string().optional().describe("First non-loopback IPv4, if known."),
+  // Runtime metrics — populated from `…/status/current` on the observation
+  // paths (lookup/sync). Optional: absent for a stopped guest or a synthetic
+  // (deleted) record. All bytes; cpu/mem as percent.
+  cpuPct: z.number().optional().describe("Guest CPU utilisation (percent)."),
+  cpus: z.number().int().optional().describe("Allocated vCPUs."),
+  memBytes: z.number().optional(),
+  maxMemBytes: z.number().optional(),
+  memPct: z.number().optional().describe("mem/maxmem as a percent."),
+  diskBytes: z.number().optional(),
+  maxDiskBytes: z.number().optional(),
+  netinBytes: z.number().optional(),
+  netoutBytes: z.number().optional(),
+  uptimeSec: z.number().optional(),
   lastOperation: z.string(),
   recordedAt: z.string(),
 });
 export type GuestState = z.infer<typeof GuestStateSchema>;
+
+/** A physical disk's health summary within a node-status record. */
+export const NodeDiskSchema = z.object({
+  device: z.string(),
+  type: z.string().optional().describe("ssd | hdd | nvme | usb."),
+  model: z.string().optional(),
+  serial: z.string().optional(),
+  sizeBytes: z.number().optional(),
+  health: z.string().describe("SMART verdict: PASSED | FAILED | UNKNOWN."),
+  wearoutPct: z.number().optional().describe(
+    "SSD/NVMe life remaining (percent; higher is healthier).",
+  ),
+  usedBy: z.string().optional().describe("ZFS | LVM | partitions | …"),
+});
+export type NodeDisk = z.infer<typeof NodeDiskSchema>;
+
+/**
+ * Host-health snapshot written by `nodeStatus` — the per-node primitive for
+ * CPU load, memory/swap pressure, root-filesystem fill, and physical-disk SMART
+ * health. One record per node (instance name `node-<node>`).
+ */
+export const NodeStatusSchema = z.object({
+  node: z.string(),
+  cpuPct: z.number().optional().describe("Host CPU utilisation (percent)."),
+  cpus: z.number().int().optional(),
+  loadavg: z.array(z.number()).optional().describe("[1m, 5m, 15m]."),
+  memTotal: z.number().optional(),
+  memUsed: z.number().optional(),
+  memPct: z.number().optional().describe("Memory pressure (percent)."),
+  swapTotal: z.number().optional(),
+  swapUsed: z.number().optional(),
+  swapPct: z.number().optional(),
+  rootfsTotal: z.number().optional(),
+  rootfsUsed: z.number().optional(),
+  rootfsPct: z.number().optional().describe("Root-filesystem fill (percent)."),
+  uptimeSec: z.number().optional(),
+  kernelVersion: z.string().optional(),
+  pveVersion: z.string().optional(),
+  disks: z.array(NodeDiskSchema).describe("Physical disks with SMART health."),
+  recordedAt: z.string(),
+});
+export type NodeStatus = z.infer<typeof NodeStatusSchema>;
+
+/** `nodeStatus` takes no arguments — the node comes from the transport. */
+export const NodeStatusArgsSchema = z.object({});
+export type NodeStatusArgs = z.infer<typeof NodeStatusArgsSchema>;
+
+/**
+ * A guest's config bag written by `getConfig` — the declarative state (cores,
+ * memory, disks, `netN`, cloud-init keys, tags) as PVE returns it. Distinct from
+ * the `guest` runtime-status record: this is config, not metrics.
+ */
+export const GuestConfigSchema = z.object({
+  vmid: z.number().int(),
+  node: z.string(),
+  config: z.record(z.string(), z.union([z.string(), z.number()])).describe(
+    "Raw PVE config keys (cores, memory, scsiN, netN, ipconfigN, ciuser, tags, …).",
+  ),
+  recordedAt: z.string(),
+});
+export type GuestConfig = z.infer<typeof GuestConfigSchema>;
+
+/** A node storage entry within a `nodeConfig` record. */
+export const NodeStorageSchema = z.object({
+  storage: z.string(),
+  type: z.string().optional(),
+  content: z.array(z.string()).describe(
+    "Content types: vztmpl, rootdir, images, …",
+  ),
+  avail: z.number().optional().describe("Bytes available, when reported."),
+});
+
+/**
+ * Node config inventory written by `nodeConfig` — storages (id/type/content/
+ * capacity) and bridges. The static counterpart to `nodeStatus` (host metrics).
+ */
+export const NodeConfigSchema = z.object({
+  node: z.string(),
+  storages: z.array(NodeStorageSchema),
+  bridges: z.array(z.string()),
+  recordedAt: z.string(),
+});
+export type NodeConfig = z.infer<typeof NodeConfigSchema>;
+
+/** `nodeConfig` takes no arguments — the node comes from the transport. */
+export const NodeConfigArgsSchema = z.object({});
+export type NodeConfigArgs = z.infer<typeof NodeConfigArgsSchema>;
 
 /** Result of a `guestExec` command run inside a guest. */
 export const ExecResultSchema = z.object({

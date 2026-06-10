@@ -39,7 +39,10 @@ const apiGlobal = GlobalArgsSchema.parse({
 Deno.test("ResizeDiskArgsSchema: defaults disk, validates size, requires a ref", () => {
   const ok = ResizeDiskArgsSchema.parse({ vmid: 9001, size: "+20G" });
   assertEquals(ok.disk, "scsi0"); // default
-  assertEquals(ResizeDiskArgsSchema.parse({ vmid: 9001, size: "50G" }).size, "50G");
+  assertEquals(
+    ResizeDiskArgsSchema.parse({ vmid: 9001, size: "50G" }).size,
+    "50G",
+  );
   // bad size (unit-only / garbage) rejected
   assert(!ResizeDiskArgsSchema.safeParse({ vmid: 9001, size: "big" }).success);
   // bad disk key rejected
@@ -115,8 +118,11 @@ Deno.test("buildApiCall: GET puts params in query, sets auth header", () => {
     verb: "get",
     path: "/nodes/pve1/qemu/9001/status/current",
   });
-  assertEquals(url, "https://10.0.0.10:8006/api2/json" +
-    "/nodes/pve1/qemu/9001/status/current");
+  assertEquals(
+    url,
+    "https://10.0.0.10:8006/api2/json" +
+      "/nodes/pve1/qemu/9001/status/current",
+  );
   assertEquals(init.method, "GET");
   assertEquals(
     (init.headers as Record<string, string>).Authorization,
@@ -195,7 +201,7 @@ Deno.test("executeRequest (ssh): tolerates worker progress before the UPID", asy
     Promise.resolve({
       code: 0,
       stdout:
-        'create full clone of drive scsi0 (local-zfs:base-9000-disk-0)\n' +
+        "create full clone of drive scsi0 (local-zfs:base-9000-disk-0)\n" +
         '"UPID:pve1:0001:clone:OK"',
       stderr: "",
     })
@@ -231,12 +237,14 @@ Deno.test("executeRequest (ssh): no-data mutation confirmation → null", async 
 });
 
 Deno.test("executeRequest (api): unwraps the data envelope", async () => {
-  setFetch(((_u: string | URL | Request, _i?: RequestInit) =>
-    Promise.resolve(
-      new Response(JSON.stringify({ data: { status: "running" } }), {
-        status: 200,
-      }),
-    )) as typeof fetch);
+  setFetch(
+    ((_u: string | URL | Request, _i?: RequestInit) =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: { status: "running" } }), {
+          status: 200,
+        }),
+      )) as typeof fetch,
+  );
   try {
     const data = await executeRequest(apiGlobal, {
       verb: "get",
@@ -249,8 +257,12 @@ Deno.test("executeRequest (api): unwraps the data envelope", async () => {
 });
 
 Deno.test("executeRequest (api): HTTP >= 400 throws PveError", async () => {
-  setFetch(((_u: string | URL | Request, _i?: RequestInit) =>
-    Promise.resolve(new Response("forbidden", { status: 403 }))) as typeof fetch);
+  setFetch(
+    ((_u: string | URL | Request, _i?: RequestInit) =>
+      Promise.resolve(
+        new Response("forbidden", { status: 403 }),
+      )) as typeof fetch,
+  );
   try {
     await assertRejects(
       () => executeRequest(apiGlobal, { verb: "delete", path: "/x" }),

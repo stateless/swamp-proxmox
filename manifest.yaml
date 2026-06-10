@@ -1,13 +1,15 @@
 manifestVersion: 1
 name: "@stateless/proxmox"
-version: "2026.06.02.4"
+version: "2026.06.10.1"
 description: >-
   Transport-neutral Proxmox VE lifecycle — QEMU VMs (clone, cloud-init config,
   resize disk, start, stop, delete, in-guest exec) and LXC containers
   (create-from-template, config, resize, start, stop, delete) — over the REST
   API directly (token auth) or by running pvesh on the node over SSH (node-local
   API, reuses an existing jump). Idempotent create/clone/delete + a reachability
-  pre-flight check.
+  pre-flight check. Plus host/guest telemetry — a nodeStatus method (CPU load,
+  memory pressure, root-fs fill, disk SMART) and per-guest metrics — read by the
+  @stateless/proxmox-fleet report.
 repository: "https://github.com/stateless/swamp-proxmox"
 labels:
   - proxmox

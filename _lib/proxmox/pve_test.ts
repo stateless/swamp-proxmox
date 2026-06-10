@@ -5,11 +5,13 @@ import {
   agentInterfacesReq,
   assertGate,
   cloneReq,
+  configReq,
   deleteReq,
   extractIpv4,
   isManaged,
   isProtected,
   listGuestsReq,
+  parseConfig,
   parseExecPid,
   parseExecStatus,
   parseGuestList,
@@ -25,8 +27,14 @@ import {
 
 Deno.test("request builders produce the expected PVE paths", () => {
   assertEquals(listGuestsReq("pve1").path, "/nodes/pve1/qemu");
-  assertEquals(statusReq("pve1", 9001).path, "/nodes/pve1/qemu/9001/status/current");
-  assertEquals(startReq("pve1", 9001).path, "/nodes/pve1/qemu/9001/status/start");
+  assertEquals(
+    statusReq("pve1", 9001).path,
+    "/nodes/pve1/qemu/9001/status/current",
+  );
+  assertEquals(
+    startReq("pve1", 9001).path,
+    "/nodes/pve1/qemu/9001/status/start",
+  );
   assertEquals(stopReq("pve1", 9001).path, "/nodes/pve1/qemu/9001/status/stop");
   assertEquals(
     agentInterfacesReq("pve1", 9001).path,
@@ -43,7 +51,12 @@ Deno.test("cloneReq maps options to PVE params", () => {
   });
   assertEquals(req.verb, "create");
   assertEquals(req.path, "/nodes/pve1/qemu/9000/clone");
-  assertEquals(req.params, { newid: 9001, name: "cp", full: 1, storage: "local-zfs" });
+  assertEquals(req.params, {
+    newid: 9001,
+    name: "cp",
+    full: 1,
+    storage: "local-zfs",
+  });
 });
 
 Deno.test("cloneReq encodes a linked clone as full=0 and omits storage", () => {
@@ -68,6 +81,36 @@ Deno.test("setConfigReq passes config keys through to PUT", () => {
   assertEquals(req.params!.net0, "virtio,bridge=vmbr3");
 });
 
+Deno.test("configReq GETs the guest config endpoint", () => {
+  assertEquals(configReq("pve1", 9001), {
+    verb: "get",
+    path: "/nodes/pve1/qemu/9001/config",
+  });
+});
+
+Deno.test("parseConfig keeps scalars, normalises booleans, drops non-scalars", () => {
+  const cfg = parseConfig({
+    cores: 2,
+    memory: 2048,
+    net0: "virtio,bridge=vmbr1",
+    onboot: true, // → 1
+    template: false, // → 0
+    unmanaged: { nested: "x" }, // dropped
+    bogus: ["a"], // dropped
+    digest: "abc123",
+  });
+  assertEquals(cfg, {
+    cores: 2,
+    memory: 2048,
+    net0: "virtio,bridge=vmbr1",
+    onboot: 1,
+    template: 0,
+    digest: "abc123",
+  });
+  assertEquals(parseConfig(null), {});
+  assertEquals(parseConfig("nope"), {});
+});
+
 Deno.test("deleteReq adds purge params only when requested", () => {
   assertEquals(deleteReq("pve1", 9001, false).params, {});
   assertEquals(deleteReq("pve1", 9001, true).params, {
@@ -80,11 +123,20 @@ Deno.test("parseGuestList tolerates non-array and missing fields", () => {
   assertEquals(parseGuestList(null), []);
   assertEquals(parseGuestList("nope"), []);
   const out = parseGuestList([{ vmid: 105, name: "webapp" }, { foo: 1 }]);
-  assertEquals(out, [{ vmid: 105, name: "webapp", status: undefined, tags: [] }]);
+  assertEquals(out, [{
+    vmid: 105,
+    name: "webapp",
+    status: undefined,
+    tags: [],
+  }]);
 });
 
 Deno.test("parseGuestList captures + splits tags", () => {
-  const out = parseGuestList([{ vmid: 9201, name: "cp", tags: "swamp;production" }]);
+  const out = parseGuestList([{
+    vmid: 9201,
+    name: "cp",
+    tags: "swamp;production",
+  }]);
   assertEquals(out[0].tags, ["swamp", "production"]);
 });
 
@@ -114,22 +166,44 @@ Deno.test("withManagedTag adds swamp idempotently, preserving others", () => {
 Deno.test("assertGate enforces managed + protected unless force", () => {
   // not swamp-managed → blocked
   assertThrows(
-    () => assertGate(["web"], { force: false, op: "delete", vmid: 9, checkProtected: true }),
+    () =>
+      assertGate(["web"], {
+        force: false,
+        op: "delete",
+        vmid: 9,
+        checkProtected: true,
+      }),
     Error,
     "not swamp-managed",
   );
   // swamp-managed but production + delete → blocked
   assertThrows(
-    () => assertGate(["swamp", "production"], { force: false, op: "delete", vmid: 9, checkProtected: true }),
+    () =>
+      assertGate(["swamp", "production"], {
+        force: false,
+        op: "delete",
+        vmid: 9,
+        checkProtected: true,
+      }),
     Error,
     "production/protected",
   );
   // swamp-managed, not protected → ok
-  assertGate(["swamp"], { force: false, op: "delete", vmid: 9, checkProtected: true });
+  assertGate(["swamp"], {
+    force: false,
+    op: "delete",
+    vmid: 9,
+    checkProtected: true,
+  });
   // stop only needs managed (no protected check)
   assertGate(["swamp", "production"], { force: false, op: "stop", vmid: 9 });
   // force bypasses everything
-  assertGate(["web"], { force: true, op: "delete", vmid: 9, checkProtected: true });
+  assertGate(["web"], {
+    force: true,
+    op: "delete",
+    vmid: 9,
+    checkProtected: true,
+  });
 });
 
 Deno.test("resolveVmidFromList finds, rejects missing and ambiguous", () => {
@@ -139,7 +213,11 @@ Deno.test("resolveVmidFromList finds, rejects missing and ambiguous", () => {
     { vmid: 9002, name: "cp" },
   ];
   assertEquals(resolveVmidFromList(list, "webapp"), 105);
-  assertThrows(() => resolveVmidFromList(list, "nope"), Error, "no guest named");
+  assertThrows(
+    () => resolveVmidFromList(list, "nope"),
+    Error,
+    "no guest named",
+  );
   assertThrows(() => resolveVmidFromList(list, "cp"), Error, "ambiguous");
 });
 

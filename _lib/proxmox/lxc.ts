@@ -15,6 +15,16 @@
 
 import type { PveRequest } from "./client.ts";
 
+// Node-neutral storage/bridge reads live in node.ts now; re-exported here under
+// their original names so the lxc create-feasibility code + tests are unchanged.
+export {
+  nodeBridgesReq as listBridgesReq,
+  nodeStoragesReq as listStoragesReq,
+  parseBridges,
+  parseStorages,
+  type StorageCap,
+} from "./node.ts";
+
 const lxc = (node: string, vmid?: number) =>
   vmid === undefined ? `/nodes/${node}/lxc` : `/nodes/${node}/lxc/${vmid}`;
 
@@ -44,20 +54,6 @@ export function listTemplatesReq(node: string, storage: string): PveRequest {
     verb: "get",
     path: `/nodes/${node}/storage/${storage}/content`,
     params: { content: "vztmpl" },
-  };
-}
-
-/** GET the node's storage list (id, type, content types, capacity). */
-export function listStoragesReq(node: string): PveRequest {
-  return { verb: "get", path: `/nodes/${node}/storage` };
-}
-
-/** GET the node's network interfaces, filtered to bridges. */
-export function listBridgesReq(node: string): PveRequest {
-  return {
-    verb: "get",
-    path: `/nodes/${node}/network`,
-    params: { type: "bridge" },
   };
 }
 
@@ -164,7 +160,7 @@ export function ctResizeReq(
 
 /**
  * Extract the first static IPv4 from an LXC config's `netN` entries. PVE
- * encodes them as `name=eth0,bridge=vmbr0,ip=10.10.0.21/24,gw=…`. Returns the
+ * encodes them as `name=eth0,bridge=vmbr0,ip=198.51.100.21/24,gw=…`. Returns the
  * bare address (no CIDR), or undefined for DHCP/none.
  */
 export function extractCtConfigIpv4(config: unknown): string | undefined {
@@ -195,43 +191,6 @@ export function parseVolids(data: unknown): string[] {
 export function storageOfVolid(volid: string): string {
   const i = volid.indexOf(":");
   return i === -1 ? volid : volid.slice(0, i);
-}
-
-/** A node storage's capabilities (from {@link listStoragesReq}). */
-export interface StorageCap {
-  storage: string;
-  type?: string;
-  /** Content types the storage accepts (vztmpl, rootdir, images, …). */
-  content: string[];
-  /** Bytes available, when reported. */
-  avail?: number;
-}
-
-/** Coerce the `/nodes/<node>/storage` list into typed capabilities. */
-export function parseStorages(data: unknown): StorageCap[] {
-  if (!Array.isArray(data)) return [];
-  return data.flatMap((e) => {
-    if (!e || typeof e !== "object" || !("storage" in e)) return [];
-    const r = e as Record<string, unknown>;
-    const content = typeof r.content === "string"
-      ? r.content.split(",").map((c) => c.trim()).filter(Boolean)
-      : [];
-    return [{
-      storage: String(r.storage),
-      type: typeof r.type === "string" ? r.type : undefined,
-      content,
-      avail: typeof r.avail === "number" ? r.avail : undefined,
-    }];
-  });
-}
-
-/** Bridge interface names from a `/nodes/<node>/network?type=bridge` list. */
-export function parseBridges(data: unknown): string[] {
-  if (!Array.isArray(data)) return [];
-  return data.flatMap((e) => {
-    const i = (e as Record<string, unknown> | null)?.iface;
-    return typeof i === "string" ? [i] : [];
-  });
 }
 
 /**
